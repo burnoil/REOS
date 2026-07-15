@@ -15,14 +15,23 @@ internal static class Program
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static async Task Main()
+    public static async Task Main(string[] args)
     {
+        if (args.Length == 2 && args[0].Equals("--restore", StringComparison.OrdinalIgnoreCase) &&
+            long.TryParse(args[1], out long restoreHandle))
+        {
+            NativeMethods.RestoreWindow((nint)restoreHandle);
+            return;
+        }
+
         string stateDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "REOS");
         Directory.CreateDirectory(stateDirectory);
 
         string statePath = Path.Combine(stateDirectory, "state.json");
+        string stowagePath = Path.Combine(stateDirectory, "stowage.txt");
+
         using Mutex singleInstance = new(true, "Local\\REOS.Core", out bool createdNew);
         if (!createdNew)
         {
@@ -35,6 +44,7 @@ internal static class Program
             {
                 ReosState state = WindowInventory.Capture();
                 await WriteAtomicallyAsync(statePath, state).ConfigureAwait(false);
+                await WriteStowageFeedAsync(stowagePath, state).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -55,6 +65,21 @@ internal static class Program
         await File.WriteAllTextAsync(temporaryPath, json, new UTF8Encoding(false)).ConfigureAwait(false);
         File.Move(temporaryPath, path, true);
     }
+
+    private static async Task WriteStowageFeedAsync(string path, ReosState state)
+    {
+        string text = state.MinimizedApplications.Count == 0
+            ? "NO APPLICATIONS STOWED"
+            : string.Join("  //  ", state.MinimizedApplications.Take(6).Select((application, index) =>
+                $"{index + 1:00} {application.ReosLabel} | {Condense(application.Title, 38)} | H:{application.Handle}"));
+
+        string temporaryPath = path + ".tmp";
+        await File.WriteAllTextAsync(temporaryPath, text, new UTF8Encoding(false)).ConfigureAwait(false);
+        File.Move(temporaryPath, path, true);
+    }
+
+    private static string Condense(string value, int maximum) =>
+        value.Length <= maximum ? value : value[..(maximum - 1)] + "…";
 }
 
 internal static class WindowInventory
@@ -74,73 +99,36 @@ internal static class WindowInventory
         {
             try
             {
-                if (!NativeMethods.IsWindowVisible(handle))
-                {
-                    return true;
-                }
+                if (!NativeMethods.IsWindowVisible(handle)) return true;
 
                 nint rootOwner = NativeMethods.GetAncestor(handle, GaRootOwner);
-                if (rootOwner == nint.Zero)
-                {
-                    rootOwner = handle;
-                }
+                if (rootOwner == nint.Zero) rootOwner = handle;
 
                 long rootValue = rootOwner.ToInt64();
-                if (!seenRootOwners.Add(rootValue))
-                {
-                    return true;
-                }
+                if (!seenRootOwners.Add(rootValue)) return true;
 
                 long extendedStyle = NativeMethods.GetWindowLongPtr(rootOwner, GwlExStyle).ToInt64();
-                if ((extendedStyle & WsExToolWindow) != 0)
-                {
-                    return true;
-                }
+                if ((extendedStyle & WsExToolWindow) != 0) return true;
 
                 int cloaked = 0;
-                _ = NativeMethods.DwmGetWindowAttribute(
-                    rootOwner,
-                    DwmwaCloaked,
-                    out cloaked,
-                    Marshal.SizeOf<int>());
-                if (cloaked != 0)
-                {
-                    return true;
-                }
+                _ = NativeMethods.DwmGetWindowAttribute(rootOwner, DwmwaCloaked, out cloaked, Marshal.SizeOf<int>());
+                if (cloaked != 0) return true;
 
                 string title = NativeMethods.ReadWindowTitle(rootOwner);
-                if (string.IsNullOrWhiteSpace(title) || IsExcludedTitle(title))
-                {
-                    return true;
-                }
+                if (string.IsNullOrWhiteSpace(title) || IsExcludedTitle(title)) return true;
 
                 _ = NativeMethods.GetWindowThreadProcessId(rootOwner, out uint processId);
                 Process? process = null;
-                try
-                {
-                    process = Process.GetProcessById((int)processId);
-                }
-                catch
-                {
-                    // A window may close between enumeration and process lookup.
-                }
+                try { process = Process.GetProcessById((int)processId); } catch { }
 
                 string processName = process?.ProcessName ?? "unknown";
                 bool minimized = NativeMethods.IsIconic(rootOwner);
                 bool active = rootOwner == foregroundHandle || handle == foregroundHandle;
 
                 applications.Add(new ApplicationWindow(
-                    Handle: rootValue,
-                    Process: processName,
-                    Title: title,
-                    ReosLabel: ApplicationClassifier.Classify(processName),
-                    IsMinimized: minimized,
-                    IsActive: active));
+                    rootValue, processName, title, ApplicationClassifier.Classify(processName), minimized, active));
             }
-            catch
-            {
-                // One malformed or inaccessible window must not stop the inventory.
-            }
+            catch { }
 
             return true;
         }, nint.Zero);
@@ -152,44 +140,30 @@ internal static class WindowInventory
             .ToList();
 
         return new ReosState(
-            SchemaVersion: 1,
-            GeneratedUtc: DateTimeOffset.UtcNow,
-            ActiveApplication: ordered.FirstOrDefault(application => application.IsActive),
-            MinimizedApplications: ordered.Where(application => application.IsMinimized).Take(12).ToList(),
-            Applications: ordered);
+            1,
+            DateTimeOffset.UtcNow,
+            ordered.FirstOrDefault(application => application.IsActive),
+            ordered.Where(application => application.IsMinimized).Take(12).ToList(),
+            ordered);
     }
 
     private static bool IsExcludedTitle(string title) => title is
-        "Program Manager" or
-        "Rainmeter" or
-        "Windows Input Experience";
+        "Program Manager" or "Rainmeter" or "Windows Input Experience";
 }
 
 internal static class ApplicationClassifier
 {
-    private static readonly Dictionary<string, string> Labels =
-        new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["msedge"] = "RESEARCH TERMINAL",
-            ["chrome"] = "RESEARCH TERMINAL",
-            ["firefox"] = "RESEARCH TERMINAL",
-            ["pwsh"] = "COMMAND TERMINAL",
-            ["powershell"] = "COMMAND TERMINAL",
-            ["WindowsTerminal"] = "COMMAND TERMINAL",
-            ["cmd"] = "COMMAND TERMINAL",
-            ["notepad++"] = "DOCUMENT EDITOR",
-            ["notepad"] = "DOCUMENT EDITOR",
-            ["devenv"] = "SOURCE DEVELOPMENT",
-            ["Code"] = "SOURCE DEVELOPMENT",
-            ["explorer"] = "FILE SERVICES",
-            ["AcroRd32"] = "ENGINEERING DOCUMENTS",
-            ["SumatraPDF"] = "ENGINEERING DOCUMENTS"
-        };
+    private static readonly Dictionary<string, string> Labels = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["msedge"] = "RESEARCH TERMINAL", ["chrome"] = "RESEARCH TERMINAL", ["firefox"] = "RESEARCH TERMINAL",
+        ["pwsh"] = "COMMAND TERMINAL", ["powershell"] = "COMMAND TERMINAL", ["WindowsTerminal"] = "COMMAND TERMINAL", ["cmd"] = "COMMAND TERMINAL",
+        ["notepad++"] = "DOCUMENT EDITOR", ["notepad"] = "DOCUMENT EDITOR",
+        ["devenv"] = "SOURCE DEVELOPMENT", ["Code"] = "SOURCE DEVELOPMENT",
+        ["explorer"] = "FILE SERVICES", ["AcroRd32"] = "ENGINEERING DOCUMENTS", ["SumatraPDF"] = "ENGINEERING DOCUMENTS"
+    };
 
     public static string Classify(string processName) =>
-        Labels.TryGetValue(processName, out string? label)
-            ? label
-            : "APPLICATION SERVICE";
+        Labels.TryGetValue(processName, out string? label) ? label : "APPLICATION SERVICE";
 }
 
 internal sealed record ReosState(
@@ -211,60 +185,37 @@ internal static class NativeMethods
 {
     internal delegate bool EnumWindowsProc(nint hWnd, nint lParam);
 
-    [DllImport("user32.dll")]
-    internal static extern bool EnumWindows(EnumWindowsProc callback, nint lParam);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool IsWindowVisible(nint hWnd);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool IsIconic(nint hWnd);
-
-    [DllImport("user32.dll")]
-    internal static extern nint GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    internal static extern nint GetAncestor(nint hWnd, uint flags);
-
-    [DllImport("user32.dll")]
-    internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetWindowText(nint hWnd, StringBuilder text, int count);
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowTextLength(nint hWnd);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
-    private static extern nint GetWindowLongPtr64(nint hWnd, int index);
-
-    [DllImport("user32.dll", EntryPoint = "GetWindowLong")]
-    private static extern nint GetWindowLongPtr32(nint hWnd, int index);
-
-    [DllImport("dwmapi.dll")]
-    internal static extern int DwmGetWindowAttribute(
-        nint hWnd,
-        int attribute,
-        out int value,
-        int size);
+    [DllImport("user32.dll")] internal static extern bool EnumWindows(EnumWindowsProc callback, nint lParam);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsWindowVisible(nint hWnd);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool IsIconic(nint hWnd);
+    [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] internal static extern nint GetAncestor(nint hWnd, uint flags);
+    [DllImport("user32.dll")] internal static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint hWnd, StringBuilder text, int count);
+    [DllImport("user32.dll")] private static extern int GetWindowTextLength(nint hWnd);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")] private static extern nint GetWindowLongPtr64(nint hWnd, int index);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLong")] private static extern nint GetWindowLongPtr32(nint hWnd, int index);
+    [DllImport("dwmapi.dll")] internal static extern int DwmGetWindowAttribute(nint hWnd, int attribute, out int value, int size);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool ShowWindowAsync(nint hWnd, int command);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetForegroundWindow(nint hWnd);
 
     internal static nint GetWindowLongPtr(nint hWnd, int index) =>
-        nint.Size == 8
-            ? GetWindowLongPtr64(hWnd, index)
-            : GetWindowLongPtr32(hWnd, index);
+        nint.Size == 8 ? GetWindowLongPtr64(hWnd, index) : GetWindowLongPtr32(hWnd, index);
 
     internal static string ReadWindowTitle(nint hWnd)
     {
         int length = GetWindowTextLength(hWnd);
-        if (length <= 0)
-        {
-            return string.Empty;
-        }
-
+        if (length <= 0) return string.Empty;
         StringBuilder builder = new(length + 1);
         _ = GetWindowText(hWnd, builder, builder.Capacity);
         return builder.ToString().Trim();
+    }
+
+    internal static void RestoreWindow(nint hWnd)
+    {
+        if (hWnd == nint.Zero) return;
+        _ = ShowWindowAsync(hWnd, 9);
+        Thread.Sleep(100);
+        _ = SetForegroundWindow(hWnd);
     }
 }
