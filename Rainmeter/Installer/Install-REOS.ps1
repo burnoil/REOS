@@ -22,13 +22,13 @@ Copy-Item (Join-Path $source '*') $target -Recurse -Force
 Write-Host "Installed REOS to $target"
 
 $stowageIni = Join-Path $target 'Modules\ApplicationStowage\ApplicationStowage.ini'
-$stowageHelper = Join-Path $target '@Resources\Scripts\WindowState.ps1'
+$stowageReader = Join-Path $target '@Resources\Scripts\ReadStowageFeed.lua'
 
 if (-not (Test-Path $stowageIni)) {
     throw "Application Stowage skin was not copied: $stowageIni"
 }
-if (-not (Test-Path $stowageHelper)) {
-    throw "Application Stowage helper was not copied: $stowageHelper"
+if (-not (Test-Path $stowageReader)) {
+    throw "Application Stowage reader was not copied: $stowageReader"
 }
 
 if (Test-Path $rainmeter) {
@@ -37,13 +37,16 @@ if (Test-Path $rainmeter) {
     & $rainmeter '!RefreshApp'
     Start-Sleep -Milliseconds 900
 
+    # WO-005 rationalization: OperationsTelemetry is intentionally not activated.
+    # Workstation Health and Engineering Network on the right rail own all machine telemetry.
+    & $rainmeter '!DeactivateConfig' 'REOS\Modules\OperationsTelemetry'
+
     $configs = @(
         @{ Config = 'REOS\DisplayServices\OperatorWorkspace'; File = 'OperatorWorkspace.ini' },
         @{ Config = 'REOS\DisplayServices\HeaderAssembly'; File = 'HeaderAssembly.ini' },
         @{ Config = 'REOS\DisplayServices\OperationsDirectory'; File = 'OperationsDirectory.ini' },
         @{ Config = 'REOS\DisplayServices\SystemInstrumentation'; File = 'SystemInstrumentation.ini' },
         @{ Config = 'REOS\DisplayServices\SystemStatusBus'; File = 'SystemStatusBus.ini' },
-        @{ Config = 'REOS\Modules\OperationsTelemetry'; File = 'OperationsTelemetry.ini' },
         @{ Config = 'REOS\Modules\ApplicationStowage'; File = 'ApplicationStowage.ini' }
     )
 
@@ -52,9 +55,10 @@ if (Test-Path $rainmeter) {
         Start-Sleep -Milliseconds 150
     }
 
+    & $rainmeter '!Refresh' 'REOS\DisplayServices\OperatorWorkspace'
     & $rainmeter '!Refresh' 'REOS\Modules\ApplicationStowage'
     Write-Host 'REOS Display Services activated.' -ForegroundColor Green
-    Write-Host 'Application Stowage activation was explicitly requested.' -ForegroundColor Green
+    Write-Host 'Duplicate Operations Telemetry module deactivated.' -ForegroundColor Green
 }
 else {
     Write-Warning 'Rainmeter was not detected. Install Rainmeter, refresh it, and load the REOS DisplayServices configurations manually.'
