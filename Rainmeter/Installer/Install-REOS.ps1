@@ -33,7 +33,8 @@ if (Test-Path $rainmeter) {
         'REOS\DisplayServices\OperationsDirectory',
         'REOS\DisplayServices\SystemInstrumentation',
         'REOS\DisplayServices\SystemStatusBus',
-        'REOS\Modules\OperationsTelemetry'
+        'REOS\Modules\OperationsTelemetry',
+        'REOS\Modules\ApplicationStowage'
     )
 
     foreach ($config in $configs) {
