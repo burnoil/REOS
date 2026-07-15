@@ -1,0 +1,52 @@
+{
+  "OPERATOR_WORKSPACE": {
+    "Label": "OPERATOR WORKSPACE",
+    "Candidates": ["explorer.exe"],
+    "Arguments": ["shell:Desktop"]
+  },
+  "DOCUMENT_CONTROL": {
+    "Label": "ENGINEERING DOCUMENT CONTROL",
+    "Candidates": ["explorer.exe"],
+    "Arguments": ["shell:Personal"]
+  },
+  "INCOMING_DATA": {
+    "Label": "INCOMING TECHNICAL DATA",
+    "Candidates": ["explorer.exe"],
+    "Arguments": ["shell:Downloads"]
+  },
+  "COMMAND_TERMINAL": {
+    "Label": "COMMAND OPERATIONS TERMINAL",
+    "Candidates": ["wt.exe", "pwsh.exe", "powershell.exe"],
+    "Arguments": []
+  },
+  "SOURCE_DEVELOPMENT": {
+    "Label": "SOURCE DEVELOPMENT ENVIRONMENT",
+    "Candidates": ["code.exe", "devenv.exe", "notepad++.exe"],
+    "Arguments": []
+  },
+  "RESOURCE_ANALYSIS": {
+    "Label": "SYSTEM RESOURCE ANALYSIS",
+    "Candidates": ["taskmgr.exe"],
+    "Arguments": []
+  },
+  "EVENT_RECORD": {
+    "Label": "OPERATIONS EVENT RECORD",
+    "Candidates": ["eventvwr.msc"],
+    "Arguments": []
+  },
+  "CONFIGURATION_CONTROL": {
+    "Label": "CONFIGURATION CONTROL",
+    "Candidates": ["control.exe"],
+    "Arguments": []
+  },
+  "ENGINEERING_COMMUNICATIONS": {
+    "Label": "ENGINEERING COMMUNICATIONS",
+    "Candidates": ["olk.exe", "outlook.exe", "ms-teams.exe"],
+    "Arguments": []
+  },
+  "RESEARCH_TERMINAL": {
+    "Label": "RESEARCH TERMINAL",
+    "Candidates": ["msedge.exe", "chrome.exe", "firefox.exe"],
+    "Arguments": []
+  }
+}
