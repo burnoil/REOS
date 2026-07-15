@@ -21,14 +21,18 @@ New-Item -ItemType Directory -Path $target -Force | Out-Null
 Copy-Item (Join-Path $source '*') $target -Recurse -Force
 Write-Host "Installed REOS to $target"
 
-$stowageIni = Join-Path $target 'Modules\ApplicationStowage\ApplicationStowage.ini'
-$stowageReader = Join-Path $target '@Resources\Scripts\ReadStowageFeed.lua'
+$workspaceIni = Join-Path $target 'DisplayServices\OperatorWorkspace\OperatorWorkspace.ini'
+$stowageCards = Join-Path $target '@Resources\Scripts\StowageCards.lua'
+$restoreHelper = Join-Path $target '@Resources\Scripts\Restore-StowedApplication.ps1'
 
-if (-not (Test-Path $stowageIni)) {
-    throw "Application Stowage skin was not copied: $stowageIni"
+if (-not (Test-Path $workspaceIni)) {
+    throw "Operator Workspace skin was not copied: $workspaceIni"
 }
-if (-not (Test-Path $stowageReader)) {
-    throw "Application Stowage reader was not copied: $stowageReader"
+if (-not (Test-Path $stowageCards)) {
+    throw "Embedded Stowage renderer was not copied: $stowageCards"
+}
+if (-not (Test-Path $restoreHelper)) {
+    throw "Stowage restore helper was not copied: $restoreHelper"
 }
 
 if (Test-Path $rainmeter) {
@@ -37,17 +41,16 @@ if (Test-Path $rainmeter) {
     & $rainmeter '!RefreshApp'
     Start-Sleep -Milliseconds 900
 
-    # WO-005 rationalization: OperationsTelemetry is intentionally not activated.
-    # Workstation Health and Engineering Network on the right rail own all machine telemetry.
+    # WO-005 rationalization: these former floating modules are now retired.
     & $rainmeter '!DeactivateConfig' 'REOS\Modules\OperationsTelemetry'
+    & $rainmeter '!DeactivateConfig' 'REOS\Modules\ApplicationStowage'
 
     $configs = @(
         @{ Config = 'REOS\DisplayServices\OperatorWorkspace'; File = 'OperatorWorkspace.ini' },
         @{ Config = 'REOS\DisplayServices\HeaderAssembly'; File = 'HeaderAssembly.ini' },
         @{ Config = 'REOS\DisplayServices\OperationsDirectory'; File = 'OperationsDirectory.ini' },
         @{ Config = 'REOS\DisplayServices\SystemInstrumentation'; File = 'SystemInstrumentation.ini' },
-        @{ Config = 'REOS\DisplayServices\SystemStatusBus'; File = 'SystemStatusBus.ini' },
-        @{ Config = 'REOS\Modules\ApplicationStowage'; File = 'ApplicationStowage.ini' }
+        @{ Config = 'REOS\DisplayServices\SystemStatusBus'; File = 'SystemStatusBus.ini' }
     )
 
     foreach ($entry in $configs) {
@@ -56,9 +59,9 @@ if (Test-Path $rainmeter) {
     }
 
     & $rainmeter '!Refresh' 'REOS\DisplayServices\OperatorWorkspace'
-    & $rainmeter '!Refresh' 'REOS\Modules\ApplicationStowage'
     Write-Host 'REOS Display Services activated.' -ForegroundColor Green
-    Write-Host 'Duplicate Operations Telemetry module deactivated.' -ForegroundColor Green
+    Write-Host 'Application Stowage is now embedded in Operator Workspace.' -ForegroundColor Green
+    Write-Host 'Legacy floating modules deactivated.' -ForegroundColor Green
 }
 else {
     Write-Warning 'Rainmeter was not detected. Install Rainmeter, refresh it, and load the REOS DisplayServices configurations manually.'
