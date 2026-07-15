@@ -68,9 +68,10 @@ internal static class Program
 
     private static async Task WriteStowageFeedAsync(string path, ReosState state)
     {
+        // Legacy flat feed retained until the Rainmeter grouped-view implementation is ready.
         string text = state.MinimizedApplications.Count == 0
             ? "NO APPLICATIONS STOWED"
-            : string.Join("  //  ", state.MinimizedApplications.Take(6).Select((application, index) =>
+            : string.Join("  //  ", state.MinimizedApplications.Take(12).Select((application, index) =>
                 $"{index + 1:00} {application.ReosLabel} | {Condense(application.Title, 38)} | H:{application.Handle}"));
 
         string temporaryPath = path + ".tmp";
@@ -126,7 +127,12 @@ internal static class WindowInventory
                 bool active = rootOwner == foregroundHandle || handle == foregroundHandle;
 
                 applications.Add(new ApplicationWindow(
-                    rootValue, processName, title, ApplicationClassifier.Classify(processName), minimized, active));
+                    rootValue,
+                    processName,
+                    title,
+                    ApplicationClassifier.Classify(processName),
+                    minimized,
+                    active));
             }
             catch { }
 
@@ -137,33 +143,102 @@ internal static class WindowInventory
             .OrderByDescending(application => application.IsActive)
             .ThenByDescending(application => application.IsMinimized)
             .ThenBy(application => application.ReosLabel, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(application => application.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        List<ApplicationWindow> minimized = ordered
+            .Where(application => application.IsMinimized)
+            .Take(24)
+            .ToList();
+
+        List<StowageGroup> groups = minimized
+            .GroupBy(application => ApplicationClassifier.GetGroupKey(application.Process), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                List<ApplicationWindow> windows = group
+                    .OrderByDescending(application => application.IsActive)
+                    .ThenBy(application => application.Title, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                ApplicationWindow mostRecent = windows[0];
+                string processName = mostRecent.Process;
+
+                return new StowageGroup(
+                    ApplicationClassifier.GetGroupKey(processName),
+                    processName,
+                    ApplicationClassifier.GetApplicationName(processName),
+                    mostRecent.ReosLabel,
+                    windows.Count,
+                    mostRecent.Title,
+                    mostRecent.Handle,
+                    windows);
+            })
+            .OrderBy(group => group.ReosLabel, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.ApplicationName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return new ReosState(
-            1,
+            2,
             DateTimeOffset.UtcNow,
             ordered.FirstOrDefault(application => application.IsActive),
-            ordered.Where(application => application.IsMinimized).Take(12).ToList(),
+            minimized,
+            groups,
             ordered);
     }
 
     private static bool IsExcludedTitle(string title) => title is
-        "Program Manager" or "Rainmeter" or "Windows Input Experience";
+        "Program Manager" or "Rainmeter" or "Windows Input Experience" or "Desktop - File Explorer";
 }
 
 internal static class ApplicationClassifier
 {
     private static readonly Dictionary<string, string> Labels = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["msedge"] = "RESEARCH TERMINAL", ["chrome"] = "RESEARCH TERMINAL", ["firefox"] = "RESEARCH TERMINAL",
-        ["pwsh"] = "COMMAND TERMINAL", ["powershell"] = "COMMAND TERMINAL", ["WindowsTerminal"] = "COMMAND TERMINAL", ["cmd"] = "COMMAND TERMINAL",
-        ["notepad++"] = "DOCUMENT EDITOR", ["notepad"] = "DOCUMENT EDITOR",
-        ["devenv"] = "SOURCE DEVELOPMENT", ["Code"] = "SOURCE DEVELOPMENT",
-        ["explorer"] = "FILE SERVICES", ["AcroRd32"] = "ENGINEERING DOCUMENTS", ["SumatraPDF"] = "ENGINEERING DOCUMENTS"
+        ["msedge"] = "RESEARCH TERMINAL",
+        ["chrome"] = "RESEARCH TERMINAL",
+        ["firefox"] = "RESEARCH TERMINAL",
+        ["pwsh"] = "COMMAND TERMINAL",
+        ["powershell"] = "COMMAND TERMINAL",
+        ["WindowsTerminal"] = "COMMAND TERMINAL",
+        ["cmd"] = "COMMAND TERMINAL",
+        ["notepad++"] = "DOCUMENT EDITOR",
+        ["notepad"] = "DOCUMENT EDITOR",
+        ["WINWORD"] = "DOCUMENT EDITOR",
+        ["devenv"] = "SOURCE DEVELOPMENT",
+        ["Code"] = "SOURCE DEVELOPMENT",
+        ["explorer"] = "FILE SERVICES",
+        ["AcroRd32"] = "ENGINEERING DOCUMENTS",
+        ["SumatraPDF"] = "ENGINEERING DOCUMENTS",
+        ["SnippingTool"] = "CAPTURE SERVICES"
+    };
+
+    private static readonly Dictionary<string, string> ApplicationNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["msedge"] = "Microsoft Edge",
+        ["chrome"] = "Google Chrome",
+        ["firefox"] = "Mozilla Firefox",
+        ["pwsh"] = "PowerShell 7",
+        ["powershell"] = "Windows PowerShell",
+        ["WindowsTerminal"] = "Windows Terminal",
+        ["cmd"] = "Command Prompt",
+        ["notepad++"] = "Notepad++",
+        ["notepad"] = "Notepad",
+        ["WINWORD"] = "Microsoft Word",
+        ["devenv"] = "Visual Studio",
+        ["Code"] = "Visual Studio Code",
+        ["explorer"] = "File Explorer",
+        ["AcroRd32"] = "Adobe Acrobat Reader",
+        ["SumatraPDF"] = "SumatraPDF",
+        ["SnippingTool"] = "Snipping Tool"
     };
 
     public static string Classify(string processName) =>
         Labels.TryGetValue(processName, out string? label) ? label : "APPLICATION SERVICE";
+
+    public static string GetApplicationName(string processName) =>
+        ApplicationNames.TryGetValue(processName, out string? name) ? name : processName;
+
+    public static string GetGroupKey(string processName) => processName.ToUpperInvariant();
 }
 
 internal sealed record ReosState(
@@ -171,7 +246,18 @@ internal sealed record ReosState(
     DateTimeOffset GeneratedUtc,
     ApplicationWindow? ActiveApplication,
     IReadOnlyList<ApplicationWindow> MinimizedApplications,
+    IReadOnlyList<StowageGroup> StowageGroups,
     IReadOnlyList<ApplicationWindow> Applications);
+
+internal sealed record StowageGroup(
+    string GroupKey,
+    string Process,
+    string ApplicationName,
+    string ReosLabel,
+    int Count,
+    string MostRecentTitle,
+    long MostRecentHandle,
+    IReadOnlyList<ApplicationWindow> Windows);
 
 internal sealed record ApplicationWindow(
     long Handle,
