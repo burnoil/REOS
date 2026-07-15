@@ -5,59 +5,73 @@ param(
     [switch]$NewSession
 )
 
-$ErrorActionPreference = 'SilentlyContinue'
-$mapPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'Data\ApplicationMap.json'
-if (-not (Test-Path $mapPath)) { exit 2 }
+$ErrorActionPreference = 'Stop'
 
-$map = Get-Content $mapPath -Raw | ConvertFrom-Json
-$entry = $map.PSObject.Properties[$ApplicationId].Value
-if (-not $entry) { exit 3 }
+$resourcesRoot = Split-Path -Parent $PSScriptRoot
+$mapPath = Join-Path $resourcesRoot 'Data\ApplicationMap.json'
+$stateDirectory = Join-Path $env:LOCALAPPDATA 'REOS'
+$logPath = Join-Path $stateDirectory 'launcher.log'
+New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
 
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class ReosLaunchApi {
-    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int command);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+function Write-LauncherLog {
+    param([string]$Message)
+    Add-Content -Path $logPath -Value "$(Get-Date -Format o) [$ApplicationId] $Message" -Encoding UTF8
 }
-'@
 
-function Activate-ExistingProcess {
-    param([string]$Executable)
-
-    $processName = [IO.Path]::GetFileNameWithoutExtension($Executable)
-    $candidate = Get-Process -Name $processName -ErrorAction SilentlyContinue |
-        Where-Object { $_.MainWindowHandle -ne 0 } |
-        Select-Object -First 1
-
-    if (-not $candidate) { return $false }
-
-    $handle = [IntPtr]$candidate.MainWindowHandle
-    if ([ReosLaunchApi]::IsIconic($handle)) {
-        [ReosLaunchApi]::ShowWindowAsync($handle, 9) | Out-Null
-        Start-Sleep -Milliseconds 80
+try {
+    if (-not (Test-Path -LiteralPath $mapPath)) {
+        throw "Application map not found: $mapPath"
     }
-    [ReosLaunchApi]::SetForegroundWindow($handle) | Out-Null
-    return $true
-}
 
-foreach ($candidate in @($entry.Candidates)) {
-    if (-not $NewSession -and (Activate-ExistingProcess -Executable $candidate)) {
+    $map = Get-Content -LiteralPath $mapPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $property = $map.PSObject.Properties | Where-Object Name -EQ $ApplicationId | Select-Object -First 1
+    if (-not $property) {
+        throw "Application ID is not defined in the map."
+    }
+
+    $entry = $property.Value
+    $arguments = @($entry.Arguments | ForEach-Object { [Environment]::ExpandEnvironmentVariables([string]$_) })
+
+    foreach ($candidateValue in @($entry.Candidates)) {
+        $candidate = [Environment]::ExpandEnvironmentVariables([string]$candidateValue)
+        $resolvedPath = $null
+
+        if ([IO.Path]::IsPathRooted($candidate) -and (Test-Path -LiteralPath $candidate)) {
+            $resolvedPath = $candidate
+        }
+        else {
+            $command = Get-Command -Name $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($command) {
+                $resolvedPath = $command.Source
+                if ([string]::IsNullOrWhiteSpace($resolvedPath)) {
+                    $resolvedPath = $command.Path
+                }
+            }
+        }
+
+        if (-not $resolvedPath -and $candidate -match '\.msc$') {
+            $resolvedPath = Join-Path $env:WINDIR 'System32\mmc.exe'
+            $arguments = @($candidate)
+        }
+
+        if (-not $resolvedPath) {
+            Write-LauncherLog "Candidate unavailable: $candidate"
+            continue
+        }
+
+        Write-LauncherLog "Launching: $resolvedPath $($arguments -join ' ')"
+        if ($arguments.Count -gt 0) {
+            Start-Process -FilePath $resolvedPath -ArgumentList $arguments
+        }
+        else {
+            Start-Process -FilePath $resolvedPath
+        }
         exit 0
     }
 
-    $command = Get-Command $candidate -ErrorAction SilentlyContinue
-    if (-not $command -and $candidate -notmatch '\.(msc|exe)$') { continue }
-
-    $arguments = @($entry.Arguments)
-    try {
-        Start-Process -FilePath $candidate -ArgumentList $arguments
-        exit 0
-    }
-    catch {
-        continue
-    }
+    throw 'No configured launch candidate was available.'
 }
-
-exit 4
+catch {
+    Write-LauncherLog "FAILED: $($_.Exception.Message)"
+    exit 4
+}
