@@ -23,6 +23,7 @@ function Update()
             SKIN:Bang('!SetOption', 'MeterSlot' .. slot, 'Hidden', '0')
             SKIN:Bang('!SetOption', 'MeterSlot' .. slot .. 'Index', 'Hidden', '0')
             SKIN:Bang('!SetOption', 'MeterSlot' .. slot .. 'Lamp', 'Hidden', '0')
+            SKIN:Bang('!SetOption', 'MeterSlot' .. slot .. 'Text', 'Hidden', '0')
         end
     end
 
@@ -44,13 +45,14 @@ function ClearSlots()
         SKIN:Bang('!SetOption', 'MeterSlot' .. i, 'Hidden', '1')
         SKIN:Bang('!SetOption', 'MeterSlot' .. i .. 'Index', 'Hidden', '1')
         SKIN:Bang('!SetOption', 'MeterSlot' .. i .. 'Lamp', 'Hidden', '1')
+        SKIN:Bang('!SetOption', 'MeterSlot' .. i .. 'Text', 'Hidden', '1')
     end
 end
 
 function CondenseTitle(title)
     title = title:gsub('%s+', ' ')
     if #title > 27 then
-        return title:sub(1, 26) .. '…'
+        return title:sub(1, 26) .. '...'
     end
     return title
 end
