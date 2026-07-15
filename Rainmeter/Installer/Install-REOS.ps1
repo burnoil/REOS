@@ -21,27 +21,40 @@ New-Item -ItemType Directory -Path $target -Force | Out-Null
 Copy-Item (Join-Path $source '*') $target -Recurse -Force
 Write-Host "Installed REOS to $target"
 
+$stowageIni = Join-Path $target 'Modules\ApplicationStowage\ApplicationStowage.ini'
+$stowageHelper = Join-Path $target '@Resources\Scripts\WindowState.ps1'
+
+if (-not (Test-Path $stowageIni)) {
+    throw "Application Stowage skin was not copied: $stowageIni"
+}
+if (-not (Test-Path $stowageHelper)) {
+    throw "Application Stowage helper was not copied: $stowageHelper"
+}
+
 if (Test-Path $rainmeter) {
     Start-Process $rainmeter
     Start-Sleep -Seconds 2
     & $rainmeter '!RefreshApp'
-    Start-Sleep -Milliseconds 700
+    Start-Sleep -Milliseconds 900
 
     $configs = @(
-        'REOS\DisplayServices\OperatorWorkspace',
-        'REOS\DisplayServices\HeaderAssembly',
-        'REOS\DisplayServices\OperationsDirectory',
-        'REOS\DisplayServices\SystemInstrumentation',
-        'REOS\DisplayServices\SystemStatusBus',
-        'REOS\Modules\OperationsTelemetry',
-        'REOS\Modules\ApplicationStowage'
+        @{ Config = 'REOS\DisplayServices\OperatorWorkspace'; File = 'OperatorWorkspace.ini' },
+        @{ Config = 'REOS\DisplayServices\HeaderAssembly'; File = 'HeaderAssembly.ini' },
+        @{ Config = 'REOS\DisplayServices\OperationsDirectory'; File = 'OperationsDirectory.ini' },
+        @{ Config = 'REOS\DisplayServices\SystemInstrumentation'; File = 'SystemInstrumentation.ini' },
+        @{ Config = 'REOS\DisplayServices\SystemStatusBus'; File = 'SystemStatusBus.ini' },
+        @{ Config = 'REOS\Modules\OperationsTelemetry'; File = 'OperationsTelemetry.ini' },
+        @{ Config = 'REOS\Modules\ApplicationStowage'; File = 'ApplicationStowage.ini' }
     )
 
-    foreach ($config in $configs) {
-        & $rainmeter '!ActivateConfig' $config
+    foreach ($entry in $configs) {
+        & $rainmeter '!ActivateConfig' $entry.Config $entry.File
+        Start-Sleep -Milliseconds 150
     }
 
+    & $rainmeter '!Refresh' 'REOS\Modules\ApplicationStowage'
     Write-Host 'REOS Display Services activated.' -ForegroundColor Green
+    Write-Host 'Application Stowage activation was explicitly requested.' -ForegroundColor Green
 }
 else {
     Write-Warning 'Rainmeter was not detected. Install Rainmeter, refresh it, and load the REOS DisplayServices configurations manually.'
