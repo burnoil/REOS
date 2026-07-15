@@ -67,9 +67,9 @@ $callback = [REOSWindowTraceApi+EnumWindowsProc]{
     $title = $builder.ToString().Trim()
     if ([string]::IsNullOrWhiteSpace($title)) { return $true }
 
-    [uint32]$pid = 0
-    [void][REOSWindowTraceApi]::GetWindowThreadProcessId($hWnd, [ref]$pid)
-    $processName = try { (Get-Process -Id $pid -ErrorAction Stop).ProcessName } catch { '<unknown>' }
+    [uint32]$processId = 0
+    [void][REOSWindowTraceApi]::GetWindowThreadProcessId($hWnd, [ref]$processId)
+    $processName = try { (Get-Process -Id $processId -ErrorAction Stop).ProcessName } catch { '<unknown>' }
 
     $placement = New-Object REOSWindowTraceApi+WINDOWPLACEMENT
     $placement.length = [Runtime.InteropServices.Marshal]::SizeOf($placement)
@@ -84,7 +84,7 @@ $callback = [REOSWindowTraceApi+EnumWindowsProc]{
 
     $rows.Add([pscustomobject]@{
         Process     = $processName
-        PID         = $pid
+        PID         = $processId
         Handle      = $hWnd.ToInt64()
         Visible     = [REOSWindowTraceApi]::IsWindowVisible($hWnd)
         IsIconic    = [REOSWindowTraceApi]::IsIconic($hWnd)
