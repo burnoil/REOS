@@ -70,7 +70,7 @@ internal static class WindowInventory
         List<ApplicationWindow> applications = [];
         HashSet<long> seenRootOwners = [];
 
-        NativeMethods.EnumWindows((handle, _) =>
+        NativeMethods.EnumWindows((handle, lParam) =>
         {
             try
             {
